@@ -1,0 +1,18 @@
+title: "Two-way CycleGAN"
+trainer: "DoubleGANTrainer"
+random_seed: 42
+max_num_epochs: 100
+val_freq_epochs: 1
+checkpoint:
+  freq_epochs: 1
+modules:
+  models: ["gen", "discr_x", "discr_y"]
+  optims: ["gen_optim", "discr_x_optim", "discr_y_optim"]
+data:
+  path: "./data"
+hp:
+  gen_layers: [1, 1, 4, 4, 16, 16, 64, 64, 64, 64, 16, 16, 4, 4, 1, 1]
+  discr_lr: 0.001
+  gen_lr: 0.001
+  batch_size: 256
+  gp_lambda: 10
