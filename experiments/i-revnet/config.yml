@@ -1,0 +1,16 @@
+title: "Classification with RevNet"
+trainer: "iRevNetTrainer"
+random_seed: 42
+max_num_epochs: 100
+val_freq_epochs: 1
+checkpoint:
+  freq_epochs: 1
+modules:
+  models: ["classifier"]
+  optims: ["optim"]
+data:
+  path: "data"
+hp:
+  layers: [3, 3, 12, 12, 48, 48, 192, 192, 48, 48, 12, 12, 3, 3]
+  lr: 0.001
+  batch_size: 256

@@ -9,7 +9,7 @@ modules:
   models: ["gen", "discr_x", "discr_y"]
   optims: ["gen_optim", "discr_x_optim", "discr_y_optim"]
 data:
-  path: "./data"
+  path: "data"
 hp:
   gen_layers: [1, 1, 4, 4, 16, 16, 64, 64, 64, 64, 16, 16, 4, 4, 1, 1]
   discr_lr: 0.001

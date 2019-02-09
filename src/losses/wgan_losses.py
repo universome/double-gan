@@ -1,6 +1,7 @@
 import torch
 import torch.autograd as autograd
 
+
 def compute_w_dist(fake_data_scores, real_data_scores):
     return real_data_scores.mean() - fake_data_scores.mean()
 

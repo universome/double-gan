@@ -1,6 +1,5 @@
 import os
 
-from torchvision.datasets import MNIST
 from firelab import BaseTrainer
 import numpy as np
 import torch
@@ -72,20 +71,20 @@ class DoubleGANTrainer(BaseTrainer):
         self.gen_optim.zero_grad()
         gen_loss_x = fake_data_x_scores.mean()
         gen_loss_y = fake_data_y_scores.mean()
-        #gen_loss = gen_loss_x + gen_loss_y
-        gen_loss = gen_loss_y
+        gen_loss = gen_loss_x + gen_loss_y
+        # gen_loss = gen_loss_y
         gen_loss.backward(retain_graph=True)
         self.gen_optim.step()
 
-        # discr_x_optim.zero_grad()
-        # discr_x_loss = w_dist_x + gp_lambda * gp_x
+        # self.discr_x_optim.zero_grad()
+        # discr_x_loss = w_dist_x + self.config.hp.gp_lambda * gp_x
         # discr_x_loss.backward()
-        # discr_x_optim.step()
+        # self.discr_x_optim.step()
 
-        self.discr_y_optim.zero_grad()
-        discr_y_loss = w_dist_y + self.config.hp.gp_lambda * gp_y
-        discr_y_loss.backward()
-        self.discr_y_optim.step()
+        # self.discr_y_optim.zero_grad()
+        # discr_y_loss = w_dist_y + self.config.hp.gp_lambda * gp_y
+        # discr_y_loss.backward()
+        # self.discr_y_optim.step()
 
         self.writer.add_scalar('TRAIN/GEN_LOSS/X', gen_loss_x.item(), self.num_iters_done)
         self.writer.add_scalar('TRAIN/GEN_LOSS/Y', gen_loss_y.item(), self.num_iters_done)
@@ -93,6 +92,12 @@ class DoubleGANTrainer(BaseTrainer):
         self.writer.add_scalar('TRAIN/W_DIST/Y', w_dist_y.item(), self.num_iters_done)
         self.writer.add_scalar('TRAIN/GRAD_PENALTY/X', gp_x.item(), self.num_iters_done)
         self.writer.add_scalar('TRAIN/GRAD_PENALTY/Y', gp_y.item(), self.num_iters_done)
+
+        # Some stats
+        self.writer.add_scalar('TRAIN/FAKE_DATA_MAX_VAL/X', fake_data_x.max().item(), self.num_iters_done)
+        self.writer.add_scalar('TRAIN/FAKE_DATA_MIN_VAL/X', fake_data_x.min().item(), self.num_iters_done)
+        self.writer.add_scalar('TRAIN/FAKE_DATA_MAX_VAL/Y', fake_data_y.max().item(), self.num_iters_done)
+        self.writer.add_scalar('TRAIN/FAKE_DATA_MIN_VAL/Y', fake_data_y.min().item(), self.num_iters_done)
 
     def validate(self):
         batch = next(iter(self.val_dataloader))
