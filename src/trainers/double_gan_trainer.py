@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils import clip_grad_norm_
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
@@ -25,11 +26,11 @@ class DoubleGANTrainer(BaseTrainer):
         ds_train = MNIST(data_path, train=True, transform=transformation, download=True)
         ds_val = MNIST(data_path, train=False, transform=transformation, download=True)
 
-        train_x = np.array([x.numpy() for x, label in ds_train if label == 7])
-        train_y = np.array([1 - x for x in train_x])
+        train_x = np.array([x.numpy() for x, label in ds_train if label == 7])[:self.config.hp.batch_size]
+        train_y = np.array([1 - x for x in train_x])[:self.config.hp.batch_size]
 
-        val_x = np.array([x.numpy() for x, label in ds_val if label == 7])
-        val_y = np.array([1 - x for x in val_x])
+        val_x = np.array([x.numpy() for x, label in ds_val if label == 7])[:self.config.hp.batch_size]
+        val_y = np.array([1 - x for x in val_x])[:self.config.hp.batch_size]
 
         train_x = rescale_img(train_x)
         train_y = rescale_img(train_y)
@@ -61,8 +62,13 @@ class DoubleGANTrainer(BaseTrainer):
         batch_x = batch[0].to(self.config.device_name)
         batch_y = batch[1].to(self.config.device_name)
 
-        fake_data_y = self.gen.forward(batch_x).tanh()
-        fake_data_x = self.gen.reverse_forward(batch_y).tanh()
+        # fake_data_y = self.gen.forward(arctanh(batch_x)).tanh()
+        # fake_data_x = self.gen.reverse_forward(arctanh(batch_y)).tanh()
+        fake_data_y = self.gen.forward(inverse_hacked_tanh(batch_x))
+        fake_data_x = self.gen.reverse_forward(inverse_hacked_tanh(batch_y))
+
+        fake_data_x = hacked_tanh(fake_data_x)
+        fake_data_y = hacked_tanh(fake_data_y)
 
         # z = torch.randn(batch_x.size(0), 100).to(self.config.device_name).view(-1, 100, 1, 1)
         # fake_data_y = self.gen.forward(z)
@@ -88,18 +94,26 @@ class DoubleGANTrainer(BaseTrainer):
         discr_y_loss = w_dist_y + self.config.hp.gp_lambda * gp_y
 
         # Training discriminator on more amount of steps
-        if self.num_iters_done % 5 == 0:
+        if self.num_iters_done % 10 == 0:
             self.gen_optim.zero_grad()
             gen_loss.backward(retain_graph=True)
+            gen_grad = np.hstack([p.grad.clone().detach().cpu().numpy().ravel() for p in self.gen.parameters()])
+            self.writer.add_histogram('GRAD/GEN', gen_grad, self.num_iters_done)
+            clip_grad_norm_(self.gen.parameters(), self.config.hp.grad_norm)
             self.gen_optim.step()
-
 
         self.discr_x_optim.zero_grad()
         discr_x_loss.backward()
+        discr_x_grad = np.hstack([p.grad.clone().detach().cpu().numpy().ravel() for p in self.discr_x.parameters()])
+        self.writer.add_histogram('GRAD/DISCR/X', discr_x_grad, self.num_iters_done)
+        clip_grad_norm_(self.discr_x.parameters(), self.config.hp.grad_norm)
         self.discr_x_optim.step()
 
         self.discr_y_optim.zero_grad()
         discr_y_loss.backward()
+        discr_y_grad = np.hstack([p.grad.clone().detach().cpu().numpy().ravel() for p in self.discr_y.parameters()])
+        self.writer.add_histogram('GRAD/DISCR/Y', discr_y_grad, self.num_iters_done)
+        clip_grad_norm_(self.discr_y.parameters(), self.config.hp.grad_norm)
         self.discr_y_optim.step()
 
         self.writer.add_scalar('TRAIN/GEN_LOSS/X', gen_loss_x.item(), self.num_iters_done)
@@ -122,8 +136,14 @@ class DoubleGANTrainer(BaseTrainer):
         img_real_y = batch_y[0].cpu().numpy()
         # z = torch.randn(batch_x.size(0), 100).to(self.config.device_name).view(-1, 100, 1, 1)
         # img_fake_y = self.gen(z)[0].detach().cpu().numpy()
-        img_fake_y = self.gen(batch_x)[0].detach().cpu().tanh().numpy()
-        img_fake_x = self.gen.reverse_forward(batch_y)[0].detach().cpu().tanh().numpy()
+        img_fake_x = self.gen.reverse_forward(inverse_hacked_tanh(batch_y))
+        img_fake_y = self.gen(inverse_hacked_tanh(batch_x))
+
+        img_fake_x = hacked_tanh(img_fake_x)
+        img_fake_y = hacked_tanh(img_fake_y)
+
+        img_fake_x = img_fake_x[0].detach().cpu().numpy()
+        img_fake_y = img_fake_y[0].detach().cpu().numpy()
 
         img_real_x = rescale_img_back(img_real_x)
         img_real_y = rescale_img_back(img_real_y)
@@ -154,16 +174,16 @@ class Generator(nn.Module):
     def __init__(self, d=100):
         super(Generator, self).__init__()
 
-        self.deconv1 = nn.ConvTranspose2d(100, d*8, 4, 1, 0)
-        self.deconv1_bn = nn.BatchNorm2d(d*8)
-        self.deconv2 = nn.ConvTranspose2d(d*8, d*4, 4, 2, 1)
-        self.deconv2_bn = nn.BatchNorm2d(d*4)
-        self.deconv3 = nn.ConvTranspose2d(d*4, d*2, 4, 2, 1)
-        self.deconv3_bn = nn.BatchNorm2d(d*2)
-        # self.deconv4 = nn.ConvTranspose2d(d*2, d, 4, 2, 1)
+        self.deconv1 = nn.ConvTranspose2d(100, d * 8, 4, 1, 0)
+        self.deconv1_bn = nn.BatchNorm2d(d * 8)
+        self.deconv2 = nn.ConvTranspose2d(d * 8, d * 4, 4, 2, 1)
+        self.deconv2_bn = nn.BatchNorm2d(d * 4)
+        self.deconv3 = nn.ConvTranspose2d(d * 4, d * 2, 4, 2, 1)
+        self.deconv3_bn = nn.BatchNorm2d(d * 2)
+        # self.deconv4 = nn.ConvTranspose2d(d * 2, d, 4, 2, 1)
         # self.deconv4_bn = nn.BatchNorm2d(d)
         # self.deconv5 = nn.ConvTranspose2d(d, 1, 4, 2, 1)
-        self.deconv4 = nn.ConvTranspose2d(d*2, 1, 4, 2, 1)
+        self.deconv4 = nn.ConvTranspose2d(d * 2, 1, 4, 2, 1)
 
     def forward(self, input):
         x = F.relu(self.deconv1_bn(self.deconv1(input)))
@@ -177,7 +197,7 @@ class Generator(nn.Module):
 
 
 def arctanh(x):
-    return 0.5 * torch.log((1+x)/(1-x))
+    return 0.5 * torch.log((1 + x)/(1 - x))
 
 
 def rescale_img(x):
@@ -186,3 +206,10 @@ def rescale_img(x):
 
 def rescale_img_back(y):
     return y / 2 + 0.5
+
+
+def hacked_tanh(x, scale=1.1, slow=2):
+    return scale * torch.tanh(x / slow)
+
+def inverse_hacked_tanh(y, scale=1.1, slow=2):
+    return arctanh(y / scale) * slow
